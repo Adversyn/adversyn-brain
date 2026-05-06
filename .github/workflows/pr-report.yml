@@ -1,0 +1,155 @@
+name: PR Autonomous QA Report
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  comment:
+    name: Post Autonomous QA Report comment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+
+    steps:
+      - name: Download qa-report artifact
+        id: dl_report
+        uses: actions/download-artifact@v4
+        with:
+          name: qa-report
+          path: qa-report-dl
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Locate qa-report.md
+        id: locate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f qa-report-dl/qa-report.md ]; then
+            echo "path=qa-report-dl/qa-report.md" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve PR number
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            let prNumber = null;
+            if (run.pull_requests && run.pull_requests.length > 0) {
+              prNumber = run.pull_requests[0].number;
+            } else {
+              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: run.head_sha,
+              });
+              if (data.length > 0) prNumber = data[0].number;
+            }
+            core.setOutput('number', prNumber || '');
+            core.setOutput('sha', run.head_sha);
+            core.setOutput('conclusion', run.conclusion);
+            core.setOutput('html_url', run.html_url);
+
+      - name: Build comment body
+        id: body
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Autonomous QA Report"
+            echo ""
+            echo "- Workflow conclusion: \`${{ steps.pr.outputs.conclusion }}\`"
+            echo "- Commit: \`${{ steps.pr.outputs.sha }}\`"
+            echo "- Run: ${{ steps.pr.outputs.html_url }}"
+            echo ""
+            if [ "${{ steps.locate.outputs.found }}" = "true" ]; then
+              echo "### Summary (from qa-report.md)"
+              echo ""
+              cat "${{ steps.locate.outputs.path }}"
+            else
+              echo "### Summary"
+              echo ""
+              echo "_No qa-report.md was produced. Most likely Playwright did not run (no playwright config or no JS toolchain). See the workflow logs._"
+            fi
+            echo ""
+            echo "### Next recommended action"
+            if [ "${{ steps.pr.outputs.conclusion }}" = "success" ]; then
+              echo "- Apply label \`status:ready-for-review\` and request review."
+            else
+              echo "- Investigate the linked run, fix issues, and push again. CI must be green to merge."
+            fi
+            echo ""
+            echo "_Posted by the Adversyn Autonomous GitHub Bridge._"
+          } > comment-body.md
+
+      - name: Post or update PR comment
+        if: ${{ steps.pr.outputs.number != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment-body.md', 'utf8');
+            const issue_number = parseInt('${{ steps.pr.outputs.number }}', 10);
+            const marker = '## Autonomous QA Report';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.user && c.user.type === 'Bot' && c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              core.info(`Updated comment ${existing.id}`);
+            } else {
+              const { data } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+              core.info(`Created comment ${data.id}`);
+            }
+
+      - name: Apply status label
+        if: ${{ steps.pr.outputs.number != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = parseInt('${{ steps.pr.outputs.number }}', 10);
+            const conclusion = '${{ steps.pr.outputs.conclusion }}';
+            const add = conclusion === 'success' ? 'status:passed' : 'status:failed';
+            const remove = conclusion === 'success' ? 'status:failed' : 'status:passed';
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                labels: [add],
+              });
+            } catch (e) { core.warning(`addLabels: ${e.message}`); }
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                name: remove,
+              });
+            } catch (e) { core.info(`removeLabel ${remove}: not present`); }

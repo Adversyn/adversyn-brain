@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Autonomous GitHub Bridge docs
+    url: https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/AUTONOMOUS_GITHUB_BRIDGE.md
+    about: How agents, labels, PRs, and QA fit together.
+  - name: Codex Agent Rules
+    url: https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/CODEX_AGENT_RULES.md
+    about: What Codex may and may not do.

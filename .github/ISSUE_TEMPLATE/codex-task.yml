@@ -1,0 +1,104 @@
+name: Codex Task (focused patch)
+description: Small, scoped task for the Codex agent — patches, tests, CI fixes.
+title: "[codex] <short imperative title>"
+labels:
+  - agent:codex
+  - task:fix
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Codex Lane
+
+        Codex executes small, scoped patches with strong test discipline.
+        Use this template when the change is bounded to a specific file/module
+        and does **not** require architectural decisions.
+
+        Forbidden for Codex (must escalate to Claude or require `status:needs-human-approval`):
+        - destructive ops outside repo scope
+        - production deploys
+        - service restarts
+        - DB migrations
+        - secrets changes
+        - firewall / nginx / systemd / cron changes
+        - broker credential changes
+        - live trading actions / order placement / force-close
+  - type: input
+    id: scope
+    attributes:
+      label: Exact file or module area
+      placeholder: "src/components/MarketPulse.tsx"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests to add or update
+      description: Name the test files and the specific cases.
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands to run
+      description: Install / lint / typecheck / test / build commands the agent must execute before opening the PR.
+      value: |
+        - npm ci
+        - npm run lint --if-present
+        - npm run typecheck --if-present
+        - npm test --if-present
+        - npm run build --if-present
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden actions
+      description: List anything the agent must NOT do for this task.
+      value: |
+        - No production deploys
+        - No service restarts
+        - No secrets edits
+        - No live trading actions
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
+  - type: dropdown
+    id: pr_required
+    attributes:
+      label: Is a PR required?
+      options:
+        - "yes"
+        - "no"
+    validations:
+      required: true

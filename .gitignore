@@ -1,0 +1,46 @@
+# Adversyn autonomous bridge — keep secrets and artifacts out of git.
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Playwright / QA artifacts
+playwright-report/
+test-results/
+qa-report.md
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python (this repo also has Python sources)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Local Claude / agent state — never commit
+.claude/
+.codex/
+.tmp/
+
+# Pre-bridge scratch files at repo root — explicitly excluded from the
+# first bridge commit. If any of these later belong in the repo, move them
+# into a proper subdirectory and re-add them.
+/MarketPulse.tsx
+/marketPulseFormatters.ts
+/service_downloaded.py
+/service_new.py
+/tmp_MarketPulse.tsx
+/tmp_marketPulseFormatters.ts

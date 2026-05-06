@@ -1,0 +1,16 @@
+{
+  "name": "adversyn-autonomous-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous GitHub bridge tooling for the Adversyn brain repo (CI workflow, Playwright autonomous site QA, PR comment automation).",
+  "type": "module",
+  "scripts": {
+    "qa:e2e": "playwright test",
+    "qa:report": "node scripts/generate-qa-report.mjs",
+    "qa:full": "playwright test && node scripts/generate-qa-report.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^20.14.0"
+  }
+}

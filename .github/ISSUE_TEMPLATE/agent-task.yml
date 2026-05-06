@@ -1,0 +1,137 @@
+name: Agent Task (Claude Code / Codex / QA)
+description: Create a task that an autonomous agent (Claude Code or Codex) will pick up via GitHub labels.
+title: "[agent] <short imperative title>"
+labels:
+  - agent:claude
+  - task:fix
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Adversyn Autonomous GitHub Bridge — Agent Task
+
+        This issue will be picked up by an implementation agent based on its labels.
+        - `agent:claude` → Claude Code (large implementation, refactors, complex debugging)
+        - `agent:codex` → Codex (focused patches, tests, CI fixes, small scoped tasks)
+        - If both are present, set `primary:claude` or `primary:codex`.
+        - Destructive / production / live-money / secrets / deploy tasks **must** be labeled `status:needs-human-approval`.
+
+        **Nova writes this issue. Agents execute it. Darren only approves blocking decisions.**
+  - type: dropdown
+    id: agent_lane
+    attributes:
+      label: Agent lane
+      description: Which agent should execute this task?
+      options:
+        - Claude Code
+        - Codex
+        - QA only
+        - Multi-agent
+    validations:
+      required: true
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: Task type
+      options:
+        - fix
+        - test
+        - refactor
+        - ci
+        - qa
+        - deploy
+    validations:
+      required: true
+  - type: dropdown
+    id: primary_agent
+    attributes:
+      label: Primary agent (only required if Multi-agent)
+      options:
+        - Claude Code
+        - Codex
+        - none
+    validations:
+      required: false
+  - type: input
+    id: title
+    attributes:
+      label: Task title
+      placeholder: "Fix MarketPulse persistence after refresh"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Background, why this matters, links to prior issues/PRs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current broken behavior
+    validations:
+      required: true
+  - type: input
+    id: routes
+    attributes:
+      label: Affected routes / pages
+      placeholder: "/dashboard, /trading, /brain"
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist the agent must satisfy before marking the task complete.
+      value: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Required screenshots / logs
+      description: What proof is required in the PR comment?
+    validations:
+      required: false
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk level
+      options:
+        - low
+        - medium
+        - high
+        - production-impacting
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy_target
+    attributes:
+      label: Deployment target
+      options:
+        - none
+        - dev
+        - staging
+        - production
+    validations:
+      required: true
+  - type: textarea
+    id: qa
+    attributes:
+      label: QA requirements
+      description: Which Playwright flows must pass? Any extra manual checks?
+      value: |
+        - [ ] CI green
+        - [ ] Playwright autonomous-site-qa passes
+        - [ ] No new console errors
+    validations:
+      required: true
