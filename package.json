@@ -7,7 +7,16 @@
   "scripts": {
     "qa:e2e": "playwright test",
     "qa:report": "node scripts/generate-qa-report.mjs",
-    "qa:full": "playwright test && node scripts/generate-qa-report.mjs"
+    "qa:full": "playwright test && node scripts/generate-qa-report.mjs",
+    "pm:create-issue": "node scripts/create-github-issue-from-nova.mjs",
+    "pm:create-issue:sample-claude": "node scripts/create-github-issue-from-nova.mjs examples/nova-task-claude.json --dry-run",
+    "pm:create-issue:sample-codex": "node scripts/create-github-issue-from-nova.mjs examples/nova-task-codex.json --dry-run",
+    "pm:create-issue:sample-qa": "node scripts/create-github-issue-from-nova.mjs examples/nova-task-qa.json --dry-run",
+    "pm:watch": "node scripts/watch-nova-inbox.mjs --watch",
+    "pm:watch:once": "node scripts/watch-nova-inbox.mjs",
+    "pm:review": "node scripts/review-github-task-for-darren.mjs",
+    "pm:watch-results": "node scripts/watch-github-results-for-darren.mjs --watch",
+    "pm:watch-results:once": "node scripts/watch-github-results-for-darren.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",

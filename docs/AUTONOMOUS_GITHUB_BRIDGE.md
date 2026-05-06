@@ -4,6 +4,19 @@
 QA, deploy reports, screenshots, logs, and next-step summaries live in
 GitHub Issues, PRs, Actions artifacts, and PR comments.
 
+## Companion docs
+
+- [`NOVA_PM_AUTONOMOUS_WORKFLOW.md`](./NOVA_PM_AUTONOMOUS_WORKFLOW.md) —
+  the operational runbook (Nova → JSON task → GitHub issue → agent → CI →
+  Darren report). Read this if you are wiring up watchers or running the
+  bridge.
+- [`AGENT_EXECUTION_LOOP.md`](./AGENT_EXECUTION_LOOP.md) — exactly what
+  Claude Code and Codex do once an issue routes to them.
+- [`DARREN_FINAL_REPORTING.md`](./DARREN_FINAL_REPORTING.md) — what
+  Darren reads, where it comes from, how to (re)generate.
+- [`CODEX_AGENT_RULES.md`](./CODEX_AGENT_RULES.md) — Codex's allowed /
+  forbidden actions, PR + report conventions, collision avoidance.
+
 ## Roles
 
 | Role | Who | What they do |

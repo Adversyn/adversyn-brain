@@ -44,3 +44,21 @@ venv/
 /service_new.py
 /tmp_MarketPulse.tsx
 /tmp_marketPulseFormatters.ts
+
+# Bridge runtime state — never committed (only .gitkeep tracks each dir).
+# Order matters: re-include the subdirectory itself before excluding its
+# contents, otherwise `processed/.gitkeep` / `failed/.gitkeep` are unreachable.
+nova-inbox/*
+!nova-inbox/.gitkeep
+!nova-inbox/processed/
+!nova-inbox/failed/
+nova-inbox/processed/*
+!nova-inbox/processed/.gitkeep
+nova-inbox/failed/*
+!nova-inbox/failed/.gitkeep
+
+reports/*
+!reports/.gitkeep
+
+.bridge-state/*
+!.bridge-state/.gitkeep

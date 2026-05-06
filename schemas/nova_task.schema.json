@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Adversyn/adversyn-brain/blob/main/schemas/nova_task.schema.json",
+  "title": "NovaTask",
+  "description": "Structured task that Nova hands to the Adversyn autonomous bridge. Becomes a GitHub issue routed to Claude Code, Codex, or the QA-only lane.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "agent_lane",
+    "task_type",
+    "context",
+    "problem",
+    "expected_behavior",
+    "acceptance_criteria",
+    "report_back_to",
+    "final_report_required"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 200,
+      "description": "Short imperative title — used as the GitHub issue title."
+    },
+    "agent_lane": {
+      "type": "string",
+      "enum": ["claude", "codex", "qa-only", "multi-agent"],
+      "description": "Which lane should execute this task."
+    },
+    "primary_agent": {
+      "type": "string",
+      "enum": ["claude", "codex", "none"],
+      "description": "Required when agent_lane = multi-agent; otherwise can be 'none'.",
+      "default": "none"
+    },
+    "task_type": {
+      "type": "string",
+      "enum": ["fix", "qa", "deploy", "test", "refactor", "ci", "docs"]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "normal", "high"],
+      "default": "normal"
+    },
+    "context": { "type": "string", "minLength": 1 },
+    "problem": { "type": "string", "minLength": 1 },
+    "expected_behavior": { "type": "string", "minLength": 1 },
+    "current_behavior": { "type": "string" },
+    "affected_routes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "affected_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "qa_requirements": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "forbidden_actions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "requires_human_approval": {
+      "type": "boolean",
+      "default": false,
+      "description": "Set true for destructive / production / live-money / secrets / deploy / DB-migration / service-restart tasks."
+    },
+    "source": {
+      "type": "string",
+      "description": "Free-form provenance, e.g. 'nova:cli', 'nova:slack', 'darren:voice'."
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Who/what authored the task. e.g. 'Nova'."
+    },
+    "report_back_to": {
+      "type": "string",
+      "const": "Darren"
+    },
+    "final_report_required": {
+      "type": "boolean",
+      "const": true
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "title": "QA-only: walk /trading and /brain, capture screenshots, verify no console errors",
+  "agent_lane": "qa-only",
+  "primary_agent": "none",
+  "task_type": "qa",
+  "priority": "normal",
+  "context": "We want a baseline QA run after the recent UI tweaks landed on staging. No code changes — just the autonomous Playwright walk and a Darren final report.",
+  "problem": "We don't have a current PASS/FAIL baseline for the /trading and /brain routes against the latest staging deploy.",
+  "expected_behavior": "Playwright autonomous-site-qa walks both routes end-to-end, screenshots every page, reports persistence checks, and produces a clean qa-report.md.",
+  "affected_routes": ["/trading", "/brain", "/dashboard"],
+  "affected_files": [],
+  "acceptance_criteria": [
+    "Playwright run completes without test failures.",
+    "qa-report.md status is PASS.",
+    "Console errors and page errors are zero or fully enumerated."
+  ],
+  "qa_requirements": [
+    "All routes from the navigation are visited.",
+    "Screenshots uploaded as the playwright-report artifact.",
+    "Persistence checks are skipped if no save buttons present."
+  ],
+  "forbidden_actions": [
+    "No code changes.",
+    "No destructive UI selectors.",
+    "No live trading actions."
+  ],
+  "requires_human_approval": false,
+  "source": "nova:cli",
+  "created_by": "Nova",
+  "report_back_to": "Darren",
+  "final_report_required": true
+}
