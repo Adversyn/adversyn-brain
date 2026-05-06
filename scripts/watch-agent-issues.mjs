@@ -274,29 +274,46 @@ async function pickupOne({ owner, repo, issue }) {
   const branch = `agent/${agent}/${number}-${slug}`;
   const worktree = path.join(WORK_ROOT, `issue-${number}`);
 
-  // Lock: post pickup comment + set status:in-progress.
-  if (!dryRun) {
-    await addLabels({ owner, repo, number, labels: ['status:in-progress'] });
-  }
-
   if (!EXECUTION_ENABLED) {
-    // Detection-only mode.
+    // Detection-only mode. We do NOT claim status:in-progress (that would
+    // cause the watcher to skip the issue once execution is enabled), and
+    // we deduplicate the report comment by tracking last_reported_at in
+    // the per-issue state file. Without dedupe, a 60s poll would spam the
+    // issue every minute.
+    const prior = loadPickupState(number);
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const recentlyReported = prior && prior.state === 'gated' && prior.last_reported_at
+      && (Date.now() - new Date(prior.last_reported_at).getTime() < SIX_HOURS_MS);
+    if (recentlyReported) {
+      return { acted: 'gated-already-reported', agent, branch, last_reported_at: prior.last_reported_at };
+    }
     if (!dryRun) {
       await postIssueComment({ owner, repo, number, body:
         `## ${agent.toUpperCase()} EXECUTION REPORT\n\n**Status:** BLOCKED\n\n` +
         `**Summary:** Pickup conditions are met. The ${agent} runtime is installed (${runtime.cli_version}) and authenticated. ` +
         `Autonomous execution is currently gated by \`AGENT_EXECUTION_ENABLED=false\` in \`/etc/adversyn-brain-bridge.env\`.\n\n` +
         `**Missing:** explicit go-ahead. Set \`AGENT_EXECUTION_ENABLED=true\` and \`systemctl restart adversyn-bridge-agent-watch.service\` to enable.\n\n` +
-        `**Detected plan:**\n` +
+        `**Detected plan (when execution is enabled):**\n` +
         `- Branch: \`${branch}\`\n` +
         `- Worktree: \`${worktree}\`\n` +
         `- Runtime: \`${runtime.cli_path}\` (${runtime.cli_version})\n` +
         `- Timeout: ${Math.round(TIMEOUT_MS / 60000)} min\n\n` +
+        `**Note:** the watcher has NOT applied \`status:in-progress\` — the issue remains pickup-eligible.\n\n` +
         `_Posted by adversyn-bridge-agent-watch.service._`
       });
     }
-    savePickupState(number, { state: 'gated', agent, branch, worktree, ts: new Date().toISOString() });
+    savePickupState(number, {
+      state: 'gated',
+      agent, branch, worktree,
+      first_seen_at: prior?.first_seen_at || new Date().toISOString(),
+      last_reported_at: new Date().toISOString(),
+    });
     return { acted: 'gated-execution-disabled', agent, branch };
+  }
+
+  // Execution enabled — NOW we lock the issue.
+  if (!dryRun) {
+    await addLabels({ owner, repo, number, labels: ['status:in-progress'] });
   }
 
   // Real execution path.
