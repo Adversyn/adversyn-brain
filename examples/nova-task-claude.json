@@ -1,0 +1,38 @@
+{
+  "title": "Wire MarketPulse persistence after refresh on /trading dashboard",
+  "agent_lane": "claude",
+  "primary_agent": "none",
+  "task_type": "fix",
+  "priority": "high",
+  "context": "On the /trading dashboard, the MarketPulse panel forgets user-tuned thresholds after a hard refresh. Memory says this view is in adversyn-brain-ui and the backend is FastAPI in adversyn-brain. The fix likely needs both repos: API persistence on the brain side, and a load-on-mount call from MarketPulse.tsx.",
+  "problem": "After clicking Save on threshold inputs and refreshing, fields revert to defaults. There is no API call on mount to fetch the saved values. There is also no record of any POST endpoint that the Save button is actually hitting.",
+  "expected_behavior": "Threshold values entered by the user persist across refreshes, are loaded on mount, and round-trip through the brain backend.",
+  "current_behavior": "Refresh wipes the values. Save appears successful in the UI but does not persist.",
+  "affected_routes": ["/trading", "/trading/marketpulse"],
+  "affected_files": [
+    "MarketPulse.tsx",
+    "marketPulseFormatters.ts",
+    "service_new.py"
+  ],
+  "acceptance_criteria": [
+    "Saved threshold values are visible after a hard refresh.",
+    "POST /api/marketpulse/thresholds and GET /api/marketpulse/thresholds round-trip a typed object.",
+    "Playwright autonomous QA persistence check passes on the /trading route.",
+    "No new console errors on the /trading route.",
+    "No destructive selectors (delete, force-close, liquidate, live-trade, execute-live, reset, wipe, purge) are touched."
+  ],
+  "qa_requirements": [
+    "Playwright autonomous-site-qa must pass.",
+    "Add a regression test asserting the persisted value reappears after reload."
+  ],
+  "forbidden_actions": [
+    "No service restart of trading-ui.service or port 8888 — protected.",
+    "No live trading, no order placement, no broker credential edits.",
+    "No production deploy — staging only."
+  ],
+  "requires_human_approval": false,
+  "source": "nova:cli",
+  "created_by": "Nova",
+  "report_back_to": "Darren",
+  "final_report_required": true
+}

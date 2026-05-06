@@ -1,0 +1,32 @@
+{
+  "title": "Add regression test for marketPulseFormatters.formatPercent zero handling",
+  "agent_lane": "codex",
+  "primary_agent": "none",
+  "task_type": "test",
+  "priority": "normal",
+  "context": "marketPulseFormatters.ts has a formatPercent() helper that, for value === 0, currently emits '0.00%' but should emit '0%' to match the rest of the dashboard. This was raised in last week's UI review.",
+  "problem": "There is no test guarding formatPercent's zero behavior, so the bug can regress.",
+  "expected_behavior": "formatPercent(0) returns '0%'. formatPercent(0.001) returns '0.10%'. formatPercent(-0) returns '0%'. Negative values render with a single leading minus.",
+  "current_behavior": "No tests exist for this helper.",
+  "affected_routes": [],
+  "affected_files": ["marketPulseFormatters.ts"],
+  "acceptance_criteria": [
+    "Test file exists under tests/ that exercises formatPercent for 0, -0, 0.001, -1.5, 100.",
+    "Tests fail on the current implementation (proving the regression bites) and pass after the one-line fix.",
+    "No other helpers are touched."
+  ],
+  "qa_requirements": [
+    "npm test must pass.",
+    "No Playwright changes."
+  ],
+  "forbidden_actions": [
+    "No refactor outside marketPulseFormatters.ts.",
+    "No new dependencies.",
+    "No CI workflow edits."
+  ],
+  "requires_human_approval": false,
+  "source": "nova:cli",
+  "created_by": "Nova",
+  "report_back_to": "Darren",
+  "final_report_required": true
+}

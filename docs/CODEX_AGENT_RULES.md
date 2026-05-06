@@ -146,7 +146,24 @@ separately. Codex's report focuses on what *Codex did*, not what CI did.
 - "Tests don't exist for this code path and I don't know the contract" →
   ask Nova in a comment before writing them.
 
+## Tooling Codex must use
+
+- **Branch creation:** `node scripts/create-agent-branch.mjs --agent codex --issue <n> --slug <kebab>`.
+  Refuses dirty trees and duplicates by default. Pass `--force` to bypass
+  the dirty-tree guard *only* if Darren approved.
+- **Linking PR ↔ issue:** `node scripts/link-pr-to-issue.mjs --pr <pr> --issue <n>`.
+  Adds `Closes #N` if missing, adds `status:in-progress`, removes stale
+  status labels.
+- **Posting the execution report:** `node scripts/post-agent-report.mjs --target pr --number <pr> --agent codex --status PASS|FAIL|BLOCKED ...`.
+  Use this. Do not hand-write the comment — the script enforces format.
+
+These three scripts form Codex's interface to GitHub. Codex must **not**
+shell into `gh` directly for routine task updates — the scripts handle
+fallback to REST when `gh` is missing.
+
 ---
 
 See [`AUTONOMOUS_GITHUB_BRIDGE.md`](./AUTONOMOUS_GITHUB_BRIDGE.md) for the
 overall architecture, label contract, and routing rules.
+See [`AGENT_EXECUTION_LOOP.md`](./AGENT_EXECUTION_LOOP.md) for the
+step-by-step pickup → branch → PR → CI loop.
