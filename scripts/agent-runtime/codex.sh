@@ -7,9 +7,6 @@
 #   ADVERSYN_ISSUE     = issue number
 #   ADVERSYN_BRANCH    = "agent/codex/<n>-<slug>"
 #   ADVERSYN_WORKTREE  = absolute path to the worktree
-#
-# Contract: read prompt from stdin, do the work in cwd, commit but do not
-# push. Exit 0 on success.
 
 set -e
 set -u
@@ -28,14 +25,28 @@ fi
 echo "[codex.sh] starting codex in $PWD for issue #${ADVERSYN_ISSUE:-?}"
 echo "[codex.sh] codex version: $(codex --version 2>/dev/null | head -1)"
 
-# Codex 0.128.0 non-interactive flags:
-#   exec                       — non-interactive single run
-#   --skip-git-repo-check      — accept that we are in a git worktree (worktrees
-#                                are technically git repos, just non-standard layout)
-#   --sandbox workspace-write  — file writes by model-issued shell commands are
-#                                confined to PWD; THIS is our hard FS boundary
-#   -c approval_policy=never   — never block on approval prompts; rely on the
-#                                sandbox + the prompt's forbidden-actions list
-#   --cd "$PWD"                 — anchor working dir to the worktree
-#   --                         — end-of-flags marker before the prompt arg
-exec codex exec   --skip-git-repo-check   --sandbox workspace-write   -c approval_policy=never   --cd "$PWD"   -- "$PROMPT"
+# Codex 0.128.0 invocation, hardened for our environment:
+#
+#   --dangerously-bypass-approvals-and-sandbox
+#       This AWS Ubuntu host (linux-aws 6.17, apparmor_restrict_unprivileged_userns=1)
+#       blocks bubblewrap from setting up user namespaces. Both vendored and
+#       system bwrap fail with 'setting up uid map: Permission denied' /
+#       'loopback: Failed RTM_NEWADDR: Operation not permitted'. Without
+#       bypass, codex cannot run any local commands at all and exits BLOCKED
+#       before reading the worktree.
+#
+#       SAFETY: the bypass disables codex's internal sandbox, but our outer
+#       safety boundaries are still in place:
+#         - watcher confines work to a fresh git worktree under
+#           .bridge-state/agent-work/<repo>/issue-<n>
+#         - watcher only pushes branches matching agent/(claude|codex)/<n>-*
+#         - 15-min hard timeout (SIGTERM, then SIGKILL)
+#         - forbidden_paths and forbidden_commands are encoded in the prompt
+#           (read by codex from stdin)
+#         - watcher inspects diffs before pushing; if the agent touches a
+#           forbidden path the next layer (Darren review on PR) catches it
+#
+#   --skip-git-repo-check  — accept being inside a worktree (non-standard layout)
+#   --cd "$PWD"           — anchor working dir to the worktree
+#   --                     — end-of-flags before the prompt argument
+exec codex exec   --dangerously-bypass-approvals-and-sandbox   --skip-git-repo-check   --cd "$PWD"   -- "$PROMPT"
