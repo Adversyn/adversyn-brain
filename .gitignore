@@ -62,3 +62,9 @@ reports/*
 
 .bridge-state/*
 !.bridge-state/.gitkeep
+
+# Per-issue agent worktrees (created/destroyed by the agent pickup loop —
+# never tracked, never committed to this repo's history).
+.bridge-state/agent-work/
+.bridge-state/agent-pickup/
+.bridge-state/agent-watcher.ndjson

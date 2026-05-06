@@ -21,6 +21,46 @@ An agent acts on an issue **only** when all of these hold:
 
 If any condition fails, the agent **does not act**.
 
+## Automated pickup (EC2)
+
+The bridge runs an agent pickup watcher (`scripts/watch-agent-issues.mjs`,
+systemd unit `adversyn-bridge-agent-watch.service`) on the EC2 host. Its
+behavior:
+
+1. Polls every 60 s for issues labeled `agent:claude` / `agent:codex` with
+   a `task:*` label.
+2. Filters out issues already in a terminal status, closed, PR-as-issue,
+   or `status:needs-human-approval` without an `APPROVED FOR EXECUTION`
+   comment from someone with write access.
+3. Confirms the runtime CLI exists (`claude` or `codex`) and the runtime
+   shell script is present at `scripts/agent-runtime/<agent>.sh`.
+4. **Kill switch:** if `/etc/adversyn-brain-bridge.env` does NOT set
+   `AGENT_EXECUTION_ENABLED=true`, the watcher only posts a "would pick
+   up" report and stops there. This is the default.
+5. With execution enabled: locks the issue (`status:in-progress`), creates
+   a `git worktree` at `.bridge-state/agent-work/issue-<n>` on a fresh
+   `agent/<agent>/<n>-<slug>` branch off `origin/main`, and pipes the
+   built prompt to the runtime script.
+6. After the agent exits (or is killed by `AGENT_TIMEOUT_MS`), the
+   watcher inspects `git log origin/main..HEAD`:
+   - **commits present:** push the branch, open a PR with `Closes #<n>`,
+     post a `CLAUDE/CODEX EXECUTION REPORT` comment, flip
+     `status:in-progress` → `status:ready-for-review`.
+   - **no commits:** post BLOCKED with the agent log tail, set
+     `status:blocked`, remove `status:in-progress`.
+
+The watcher only pushes branches matching `agent/(claude|codex)/\d+-`.
+
+### Enabling real execution
+
+Edit `/etc/adversyn-brain-bridge.env` on EC2:
+```
+AGENT_EXECUTION_ENABLED=true
+# AGENT_MAX_CONCURRENT=1     # (optional) cap on simultaneous pickups
+# AGENT_TIMEOUT_MS=900000    # (optional) per-pickup hard timeout (15 min default)
+```
+Then `sudo systemctl restart adversyn-bridge-agent-watch.service`.
+
 ## Step-by-step loop
 
 ```
