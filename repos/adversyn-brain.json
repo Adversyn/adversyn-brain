@@ -1,0 +1,24 @@
+{
+  "name": "adversyn-brain",
+  "full_name": "Adversyn/adversyn-brain",
+  "purpose": "Autonomous bridge tooling — intake, watchers, agent loop, docs. This repo IS the bridge.",
+  "local_path": "/home/ubuntu/adversyn-bridge",
+  "default_branch": "main",
+  "visibility": "public",
+  "app_url": null,
+  "service_name": null,
+  "allow_agent_execution": true,
+  "allow_npm_install_on_ec2": true,
+  "allow_npm_build_on_ec2": true,
+  "allowed_task_types": ["fix", "test", "ci", "qa", "refactor", "docs"],
+  "allowed_labels_for_pickup": ["agent:claude", "agent:codex"],
+  "forbidden_paths": [
+    "/etc",
+    "/home/ubuntu/adversyn-brain",
+    "/home/ubuntu/adversyn-brain-v1-stable",
+    "/trading"
+  ],
+  "forbidden_commands": [],
+  "deploy_target": null,
+  "safety_notes": []
+}

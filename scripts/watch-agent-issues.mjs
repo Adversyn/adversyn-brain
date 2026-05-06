@@ -42,6 +42,7 @@ import {
   postIssueComment, addLabels, removeLabel,
 } from './lib/github-api.mjs';
 import { ghAvailable, ghAuthOK, ghRun } from './lib/gh-cli.mjs';
+import { loadRepos, findByFullName } from './lib/repos.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -58,9 +59,17 @@ const intervalSec = intervalArg >= 0 ? parseInt(args[intervalArg + 1], 10) : 60;
 
 // Tunables (env-driven).
 const EXECUTION_ENABLED = (process.env.AGENT_EXECUTION_ENABLED || '').toLowerCase() === 'true';
+const EXECUTION_DRY_RUN = (process.env.AGENT_EXECUTION_DRY_RUN || '').toLowerCase() === 'true';
+const REQUIRE_PR = (process.env.AGENT_EXECUTION_REQUIRE_PR || 'true').toLowerCase() === 'true';
 const MAX_CONCURRENT = Math.max(1, parseInt(process.env.AGENT_MAX_CONCURRENT || '1', 10));
-const TIMEOUT_MS = Math.max(60_000, parseInt(process.env.AGENT_TIMEOUT_MS || `${15 * 60 * 1000}`, 10));
+const TIMEOUT_MS = (() => {
+  const sec = parseInt(process.env.AGENT_EXECUTION_MAX_RUNTIME_SECONDS || '0', 10);
+  if (sec > 0) return Math.max(60_000, sec * 1000);
+  return Math.max(60_000, parseInt(process.env.AGENT_TIMEOUT_MS || `${15 * 60 * 1000}`, 10));
+})();
 const APPROVAL_PHRASE = /APPROVED\s+FOR\s+EXECUTION/i;
+const ALLOWED_REPO_LIST = (process.env.AGENT_EXECUTION_ALLOWED_REPOS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 
 const TASK_LABELS = new Set([
   'task:fix', 'task:test', 'task:ci', 'task:qa', 'task:refactor', 'task:docs',
@@ -175,16 +184,26 @@ function detectRuntime(agent) {
 
 // ---------------- prompt assembly ------------------------------------------
 
-function buildAgentPrompt({ agent, issue, worktree, branch }) {
+function buildAgentPrompt({ agent, issue, worktree, branch, repoCfg }) {
+  const repoName = repoCfg?.full_name || 'Adversyn/adversyn-brain';
+  const purpose  = repoCfg?.purpose || '(no purpose declared)';
+  const defaultBranch = repoCfg?.default_branch || 'main';
+  const forbidPaths = (repoCfg?.forbidden_paths || []).map((p) => `- ${p}`).join('\n');
+  const forbidCommands = (repoCfg?.forbidden_commands || []).map((c) => `- \`${c}\``).join('\n');
+  const safetyNotes = (repoCfg?.safety_notes || []).map((s) => `- ${s}`).join('\n');
+  const noBuild = repoCfg && repoCfg.allow_npm_build_on_ec2 === false;
+  const noInstall = repoCfg && repoCfg.allow_npm_install_on_ec2 === false;
+  const buildBan = noBuild ? '\n- HARD BAN: do NOT run `npm run build`, `vite build`, `npm run preview`, or any bundler. CI builds. EC2 must not.' : '';
+  const installBan = noInstall ? '\n- HARD BAN: do NOT run `npm install` / `npm ci` / `yarn install` / `pnpm install` on this server.' : '';
+
   return `You are the ${agent} agent for the Adversyn autonomous GitHub bridge.
 
-You are working on issue #${issue.number} in repo Adversyn/adversyn-brain.
+You are working on issue #${issue.number} in repo ${repoName}.
+Repo purpose: ${purpose}
 
-Repository working directory: ${worktree}
+Repository working directory (worktree): ${worktree}
 Branch (already checked out): ${branch}
-Repository on disk: this is the bridge repo (autonomous-workflow tooling),
-NOT the production execution-integration codebase. The production codebase
-lives at /home/ubuntu/adversyn-brain on this server and you MUST NOT touch it.
+Default branch (where the PR will target): ${defaultBranch}
 
 ISSUE TITLE
 ${issue.title}
@@ -195,8 +214,7 @@ ${issue.body || '(empty)'}
 YOUR JOB
 1. Read the acceptance criteria carefully.
 2. Implement the change inside ${worktree} only.
-3. Run the project's tests / lint / typecheck / build where applicable
-   (npm scripts: qa:e2e, qa:report; node --check; node --test if present).
+3. Run safe validation (\`node --check\`, \`bash -n\`, \`node --test\` if present).
 4. Commit each logical change with a clear message ending with
    "Refs #${issue.number}".
 5. Do NOT push the branch — the watcher will push and open the PR.
@@ -206,11 +224,16 @@ YOUR JOB
    action), exit immediately without committing. The watcher will read
    git log; if it finds zero new commits it posts BLOCKED.
 
-FORBIDDEN ACTIONS (hard stop — never do these)
+FORBIDDEN PATHS (hard stop — never write to or edit any of these)
+${forbidPaths || '(none configured for this repo)'}
+
+FORBIDDEN COMMANDS (hard stop — never invoke these on this host)
+${forbidCommands || '(none configured for this repo)'}${buildBan}${installBan}
+
+GENERAL FORBIDDEN ACTIONS
 - Editing files outside ${worktree}
-- Editing /home/ubuntu/adversyn-brain (different repo, runs production)
 - Touching /etc, systemd units, or any service config
-- Restarting any service
+- Restarting any service (systemctl, pm2, docker)
 - Running live trading actions, order placement, force-close, liquidate
 - Editing broker credentials or any secrets / .env files
 - Running database migrations
@@ -219,10 +242,10 @@ FORBIDDEN ACTIONS (hard stop — never do these)
 - Calling 'gh' to merge PRs, close other issues, or post anywhere except
   this issue / the PR you create
 
-REPORTING
+${safetyNotes ? `REPO SAFETY NOTES\n${safetyNotes}\n` : ''}REPORTING
 When you finish, the watcher reads:
-  - git log between origin/main..HEAD
-  - git diff --stat origin/main..HEAD
+  - git log between origin/${defaultBranch}..HEAD
+  - git diff --stat origin/${defaultBranch}..HEAD
 and posts a ${agent.toUpperCase()} EXECUTION REPORT comment summarizing your work.
 You don't need to post comments yourself.
 
@@ -231,7 +254,7 @@ Begin.`;
 
 // ---------------- main per-issue pickup ------------------------------------
 
-async function pickupOne({ owner, repo, issue }) {
+async function pickupOne({ owner, repo, issue, repoCfg }) {
   const number = issue.number;
   const labels = labelNames(issue);
   const agent = decideAgent(labels);
@@ -248,6 +271,22 @@ async function pickupOne({ owner, repo, issue }) {
 
   if (issue.state !== 'open' && issue.state !== 'OPEN') return { skipped: 'issue not open' };
   if (issue.pull_request) return { skipped: 'this is a PR, not an issue' };
+
+  // Per-repo allow-execution gate.
+  if (repoCfg && repoCfg.allow_agent_execution === false) {
+    return { skipped: `repo ${repoCfg.full_name} has allow_agent_execution=false` };
+  }
+  // Per-repo task-type allow list.
+  if (repoCfg && Array.isArray(repoCfg.allowed_task_types) && repoCfg.allowed_task_types.length > 0) {
+    const t = (taskLabel || '').replace(/^task:/, '');
+    if (!repoCfg.allowed_task_types.includes(t)) {
+      return { skipped: `task type '${t}' not in allowed_task_types for ${repoCfg.full_name}` };
+    }
+  }
+  // Global allow-list filter.
+  if (ALLOWED_REPO_LIST.length > 0 && !ALLOWED_REPO_LIST.includes(`${owner}/${repo}`)) {
+    return { skipped: `${owner}/${repo} not in AGENT_EXECUTION_ALLOWED_REPOS` };
+  }
 
   // Check cap.
   if (activePickupCount() >= MAX_CONCURRENT) {
@@ -272,7 +311,38 @@ async function pickupOne({ owner, repo, issue }) {
 
   const slug = makeSlug(issue.title);
   const branch = `agent/${agent}/${number}-${slug}`;
-  const worktree = path.join(WORK_ROOT, `issue-${number}`);
+  // Per-repo worktree namespace so issues from different repos don't collide.
+  const repoNs = repoCfg?.name || `${owner}-${repo}`;
+  const worktree = path.join(WORK_ROOT, repoNs, `issue-${number}`);
+  // The base repo path the worktree is created from. For the bridge repo this
+  // is `ROOT` (the watcher's own checkout); for other repos it is the per-repo
+  // local clone configured via repos/*.json. If the configured local_path is
+  // missing, we BLOCK with a clear message — the operator must clone the repo
+  // before agents can work it.
+  const baseRepoPath = repoCfg?.local_path || ROOT;
+  if (baseRepoPath !== ROOT && !fs.existsSync(path.join(baseRepoPath, '.git'))) {
+    if (!dryRun) {
+      await postIssueComment({ owner, repo, number, body:
+        `## ${agent.toUpperCase()} EXECUTION REPORT\n\n**Status:** BLOCKED\n\n` +
+        `**Summary:** Per-repo local checkout missing.\n\n` +
+        `**Missing:** \`${baseRepoPath}\` is not a git repo on the EC2 bridge host. ` +
+        `Run \`git clone https://github.com/${owner}/${repo}.git ${baseRepoPath}\` (as the \`ubuntu\` user) before agents can pick up issues for this repo.\n\n` +
+        `_Posted by adversyn-bridge-agent-watch.service._`
+      });
+    }
+    return { acted: 'blocked-local-checkout-missing', baseRepoPath };
+  }
+
+  if (EXECUTION_DRY_RUN && !dryRun) {
+    // Dry-run mode: post a "would execute" comment but skip the agent run entirely.
+    await postIssueComment({ owner, repo, number, body:
+      `## ${agent.toUpperCase()} EXECUTION REPORT\n\n**Status:** BLOCKED\n\n` +
+      `**Summary:** AGENT_EXECUTION_DRY_RUN is set — the watcher will not invoke the agent. ` +
+      `It would have created branch \`${branch}\` from \`${baseRepoPath}\` (worktree at \`${worktree}\`).\n\n` +
+      `_Posted by adversyn-bridge-agent-watch.service._`
+    });
+    return { acted: 'dry-run-execution', agent, branch };
+  }
 
   if (!EXECUTION_ENABLED) {
     // Detection-only mode. We do NOT claim status:in-progress (that would
@@ -320,18 +390,20 @@ async function pickupOne({ owner, repo, issue }) {
   savePickupState(number, { state: 'in_progress', agent, branch, worktree, started_at: new Date().toISOString(), pid: null });
 
   try {
-    // 1. Create worktree on a fresh branch off origin/main.
+    // 1. Create worktree on a fresh branch off origin/<default>.
+    fs.mkdirSync(path.dirname(worktree), { recursive: true });
     if (fs.existsSync(worktree)) {
-      const r = gitInWorktree(ROOT, ['worktree', 'remove', '-f', worktree]);
+      const r = gitInWorktree(baseRepoPath, ['worktree', 'remove', '-f', worktree]);
       if (!r.ok) logLine({ event: 'stale_worktree_remove_failed', issue: number, stderr: r.stderr });
     }
-    const fetch = gitInWorktree(ROOT, ['fetch', 'origin', 'main']);
-    if (!fetch.ok) throw new Error(`fetch origin main failed: ${fetch.stderr}`);
-    const wt = gitInWorktree(ROOT, ['worktree', 'add', '-b', branch, worktree, 'origin/main']);
+    const defaultBranch = repoCfg?.default_branch || 'main';
+    const fetch = gitInWorktree(baseRepoPath, ['fetch', 'origin', defaultBranch]);
+    if (!fetch.ok) throw new Error(`fetch origin ${defaultBranch} failed: ${fetch.stderr}`);
+    const wt = gitInWorktree(baseRepoPath, ['worktree', 'add', '-b', branch, worktree, `origin/${defaultBranch}`]);
     if (!wt.ok) throw new Error(`worktree add failed: ${wt.stderr}`);
 
     // 2. Run runtime script with prompt on stdin.
-    const prompt = buildAgentPrompt({ agent, issue, worktree, branch });
+    const prompt = buildAgentPrompt({ agent, issue, worktree, branch, repoCfg });
     const logPath = path.join(STATE_DIR, `${number}-${ts()}.log`);
     const out = fs.openSync(logPath, 'w');
     const child = spawn('bash', [runtime.runtime_script], {
@@ -353,7 +425,7 @@ async function pickupOne({ owner, repo, issue }) {
     fs.closeSync(out);
 
     // 3. Inspect commits the agent produced.
-    const log = gitInWorktree(worktree, ['log', '--pretty=%H%x09%s', 'origin/main..HEAD']);
+    const log = gitInWorktree(worktree, ['log', '--pretty=%H%x09%s', `origin/${defaultBranch}..HEAD`]);
     const commits = log.ok ? log.stdout.split('\n').filter(Boolean) : [];
 
     if (commits.length === 0) {
@@ -372,8 +444,8 @@ async function pickupOne({ owner, repo, issue }) {
         await addLabels({ owner, repo, number, labels: ['status:blocked'] });
       }
       // Cleanup worktree.
-      gitInWorktree(ROOT, ['worktree', 'remove', '-f', worktree]);
-      gitInWorktree(ROOT, ['branch', '-D', branch]);
+      gitInWorktree(baseRepoPath, ['worktree', 'remove', '-f', worktree]);
+      gitInWorktree(baseRepoPath, ['branch', '-D', branch]);
       savePickupState(number, { state: 'blocked', agent, branch, worktree, ended_at: new Date().toISOString() });
       return { acted: 'blocked-no-commits', commits: 0 };
     }
@@ -390,13 +462,17 @@ async function pickupOne({ owner, repo, issue }) {
     if (ghAvailable() && ghAuthOK()) {
       const prTitle = `[${agent}] ${issue.title}`;
       const prBody = `Closes #${number}\n\n## Summary\nAutonomous pickup of issue #${number} by the ${agent} agent.\n\n## Commits\n\`\`\`\n${commits.join('\n')}\n\`\`\`\n\n## Diff\n\`\`\`\n${stat.stdout}\n${files.stdout}\n\`\`\`\n\n_Opened automatically by adversyn-bridge-agent-watch.service._`;
-      const r = ghRun(['pr', 'create', '--title', prTitle, '--body', prBody, '--base', 'main', '--head', branch], { input: '' });
+      const r = ghRun(['pr', 'create', '--repo', `${owner}/${repo}`, '--title', prTitle, '--body', prBody, '--base', defaultBranch, '--head', branch], { input: '', cwd: worktree });
       if (r.ok) {
         const m = r.stdout.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/);
         if (m) prUrl = m[0];
       } else {
         logLine({ event: 'pr_create_failed', issue: number, stderr: r.stderr });
       }
+    }
+    if (REQUIRE_PR && !prUrl) {
+      // Push succeeded but PR creation didn't — surface this clearly.
+      logLine({ event: 'require_pr_unmet', issue: number, branch });
     }
 
     // 5. Post execution report.
@@ -415,8 +491,8 @@ async function pickupOne({ owner, repo, issue }) {
     }
 
     // 6. Cleanup the worktree but keep the branch (PR points at it).
-    gitInWorktree(ROOT, ['worktree', 'remove', '-f', worktree]);
-    savePickupState(number, { state: 'ready_for_review', agent, branch, pr_url: prUrl, ended_at: new Date().toISOString(), commits: commits.length });
+    gitInWorktree(baseRepoPath, ['worktree', 'remove', '-f', worktree]);
+    savePickupState(number, { state: 'ready_for_review', agent, branch, pr_url: prUrl, ended_at: new Date().toISOString(), commits: commits.length, owner, repo });
 
     return { acted: 'pr-opened', commits: commits.length, pr_url: prUrl, branch };
 
@@ -432,7 +508,7 @@ async function pickupOne({ owner, repo, issue }) {
       try { await removeLabel({ owner, repo, number, name: 'status:in-progress' }); } catch {}
       try { await addLabels({ owner, repo, number, labels: ['status:blocked'] }); } catch {}
     }
-    if (fs.existsSync(worktree)) gitInWorktree(ROOT, ['worktree', 'remove', '-f', worktree]);
+    if (fs.existsSync(worktree)) gitInWorktree(baseRepoPath, ['worktree', 'remove', '-f', worktree]);
     savePickupState(number, { state: 'error', agent, branch, error: msg, ended_at: new Date().toISOString() });
     return { acted: 'error', error: msg };
   }
@@ -441,37 +517,50 @@ async function pickupOne({ owner, repo, issue }) {
 // ---------------- main loop ------------------------------------------------
 
 async function tick() {
-  const repo = resolveRepo();
-  if (!repo) { emit({ ok: false, error: 'cannot resolve owner/repo' }); return { ok: false }; }
   if (!resolveToken()) { emit({ ok: false, error: 'no GitHub token (GITHUB_TOKEN env or `gh auth token`)' }); return { ok: false }; }
 
-  // Pull both lanes; dedupe.
-  const seen = new Map();
-  for (const lbl of ['agent:claude', 'agent:codex']) {
-    const r = await listIssuesByLabel({ ...repo, labels: lbl, state: 'open', perPage: 50 });
-    if (!r.ok) { logLine({ event: 'list_failed', label: lbl }); continue; }
-    for (const it of r.body || []) seen.set(it.number, it);
+  // Build the repo list to poll. Two sources, in order:
+  //   1. repos/*.json registry (multi-repo)
+  //   2. fallback: resolveRepo() (the bridge repo's own remote — single-repo legacy mode)
+  const registry = loadRepos();
+  const targets = [];
+  if (registry.length > 0) {
+    for (const r of registry) targets.push({ owner: r.full_name.split('/')[0], repo: r.full_name.split('/')[1], cfg: r });
+  } else {
+    const fallback = resolveRepo();
+    if (fallback) targets.push({ owner: fallback.owner, repo: fallback.repo, cfg: null });
   }
+  if (targets.length === 0) { emit({ ok: false, error: 'no target repos resolved' }); return { ok: false }; }
 
   const results = [];
-  for (const issue of seen.values()) {
-    const labels = labelNames(issue);
-    if (!pickTaskLabel(labels)) continue;
-    if (issue.pull_request) continue;
-    const out = await pickupOne({ ...repo, issue });
-    const summary = {
-      issue: issue.number,
-      title: issue.title,
-      labels,
-      result: out,
-      execution_enabled: EXECUTION_ENABLED,
-      dry_run: dryRun,
-    };
-    emit(summary);
-    logLine(summary);
-    results.push(summary);
+  for (const { owner, repo, cfg } of targets) {
+    // Pull both lanes per repo; dedupe.
+    const seen = new Map();
+    for (const lbl of ['agent:claude', 'agent:codex']) {
+      const r = await listIssuesByLabel({ owner, repo, labels: lbl, state: 'open', perPage: 50 });
+      if (!r.ok) { logLine({ event: 'list_failed', repo: `${owner}/${repo}`, label: lbl }); continue; }
+      for (const it of r.body || []) seen.set(it.number, it);
+    }
+    for (const issue of seen.values()) {
+      const labels = labelNames(issue);
+      if (!pickTaskLabel(labels)) continue;
+      if (issue.pull_request) continue;
+      const out = await pickupOne({ owner, repo, issue, repoCfg: cfg });
+      const summary = {
+        repo: `${owner}/${repo}`,
+        issue: issue.number,
+        title: issue.title,
+        labels,
+        result: out,
+        execution_enabled: EXECUTION_ENABLED,
+        dry_run: dryRun,
+      };
+      emit(summary);
+      logLine(summary);
+      results.push(summary);
+    }
   }
-  return { ok: true, processed: results.length, results };
+  return { ok: true, processed: results.length, results, repos_polled: targets.map((t) => `${t.owner}/${t.repo}`) };
 }
 
 (async () => {

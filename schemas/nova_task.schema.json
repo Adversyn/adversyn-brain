@@ -85,6 +85,11 @@
       "type": "string",
       "description": "Who/what authored the task. e.g. 'Nova'."
     },
+    "target_repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "GitHub owner/repo where the issue should be created. If omitted, defaults to the bridge repo (Adversyn/adversyn-brain)."
+    },
     "report_back_to": {
       "type": "string",
       "const": "Darren"

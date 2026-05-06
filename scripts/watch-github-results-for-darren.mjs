@@ -22,6 +22,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveRepo, resolveToken, listIssuesByLabel } from './lib/github-api.mjs';
+import { loadRepos } from './lib/repos.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -82,11 +83,14 @@ async function pollOnce({ owner, repo, state }) {
   return fresh;
 }
 
-async function regenerateReport(issueNumber) {
+async function regenerateReport(issueNumber, { owner, repo } = {}) {
   const args = [path.join(HERE, 'review-github-task-for-darren.mjs'), '--issue', String(issueNumber)];
   if (post && !dryRun) args.push('--post');
   if (dryRun) args.push('--dry-run');
-  const r = spawnSync('node', args, { encoding: 'utf8' });
+  // Pass GITHUB_REPOSITORY so the report script targets the right repo.
+  const env = { ...process.env };
+  if (owner && repo) env.GITHUB_REPOSITORY = `${owner}/${repo}`;
+  const r = spawnSync('node', args, { encoding: 'utf8', env });
   let parsed = null;
   if (r.stdout && r.stdout.trim()) {
     try { parsed = JSON.parse(r.stdout.trim()); }
@@ -99,34 +103,47 @@ async function regenerateReport(issueNumber) {
 }
 
 async function tick() {
-  const repo = resolveRepo();
-  if (!repo) { emit({ ok: false, error: 'cannot resolve owner/repo' }); return { ok: false }; }
   if (!resolveToken()) { emit({ ok: false, error: 'no GitHub token' }); return { ok: false }; }
+  // Build target list: repos/*.json registry, fallback to resolveRepo().
+  const registry = loadRepos();
+  const targets = registry.length > 0
+    ? registry.map((r) => ({ owner: r.full_name.split('/')[0], repo: r.full_name.split('/')[1] }))
+    : [resolveRepo()].filter(Boolean);
+  if (targets.length === 0) { emit({ ok: false, error: 'no target repos' }); return { ok: false }; }
+
   const state = loadState();
-  const fresh = await pollOnce({ ...repo, state });
-  for (const { issue, fp } of fresh) {
-    const r = await regenerateReport(issue.number);
-    state[String(issue.number)] = {
-      fingerprint: fp,
-      last_reported_at: new Date().toISOString(),
-      labels: (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name)),
-      title: issue.title,
-      url: issue.html_url,
-      report_status: r.parsed?.status || 'unknown',
-    };
-    emit({
-      ok: r.ok,
-      issue: issue.number,
-      title: issue.title,
-      labels: state[String(issue.number)].labels,
-      report_status: state[String(issue.number)].report_status,
-      written: r.parsed?.written || null,
-      posted: r.parsed?.posted || null,
-    });
-    logLine({ event: 'report_regenerated', issue: issue.number, ok: r.ok, status: r.parsed?.status });
+  let processed = 0;
+  for (const { owner, repo } of targets) {
+    const fresh = await pollOnce({ owner, repo, state });
+    for (const { issue, fp } of fresh) {
+      // State key is namespaced by repo so #5 in two repos doesn't collide.
+      const key = `${owner}/${repo}#${issue.number}`;
+      const r = await regenerateReport(issue.number, { owner, repo });
+      state[key] = {
+        repo: `${owner}/${repo}`,
+        fingerprint: fp,
+        last_reported_at: new Date().toISOString(),
+        labels: (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name)),
+        title: issue.title,
+        url: issue.html_url,
+        report_status: r.parsed?.status || 'unknown',
+      };
+      emit({
+        ok: r.ok,
+        repo: `${owner}/${repo}`,
+        issue: issue.number,
+        title: issue.title,
+        labels: state[key].labels,
+        report_status: state[key].report_status,
+        written: r.parsed?.written || null,
+        posted: r.parsed?.posted || null,
+      });
+      logLine({ event: 'report_regenerated', repo: `${owner}/${repo}`, issue: issue.number, ok: r.ok, status: r.parsed?.status });
+      processed++;
+    }
   }
   saveState(state);
-  return { ok: true, processed: fresh.length };
+  return { ok: true, processed };
 }
 
 (async () => {
