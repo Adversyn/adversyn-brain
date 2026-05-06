@@ -128,26 +128,44 @@ if (dryRun) {
   process.exit(0);
 }
 
+// Determine the target repo for this task. Precedence:
+//   1. task.target_repo (e.g. "Adversyn/Adversyn-Trading")
+//   2. GITHUB_REPOSITORY env (CI-style)
+//   3. git remote origin of cwd (legacy default)
+function resolveTargetRepo(t) {
+  if (t.target_repo && t.target_repo.includes('/')) {
+    const [owner, repo] = t.target_repo.split('/');
+    if (owner && repo) return { owner, repo, source: 'task.target_repo' };
+  }
+  const r = resolveRepo();
+  return r ? { ...r, source: r ? (process.env.GITHUB_REPOSITORY ? 'env' : 'git-remote') : 'unknown' } : null;
+}
+
 // --- create via gh CLI ----------------------------------------------------
 async function viaGh() {
   if (!ghAvailable()) return { ok: false, reason: 'gh CLI not installed' };
   if (!ghAuthOK()) return { ok: false, reason: 'gh CLI not authenticated (run `gh auth login`)' };
+  const target = resolveTargetRepo(task);
+  if (!target) return { ok: false, reason: 'cannot resolve target repo (set task.target_repo or GITHUB_REPOSITORY)' };
   const labelArgs = labels.flatMap((l) => ['--label', l]);
-  const r = ghRun(['issue', 'create', '--title', task.title, '--body-file', '-', ...labelArgs], { input: body });
+  const r = ghRun(
+    ['issue', 'create', '--repo', `${target.owner}/${target.repo}`, '--title', task.title, '--body-file', '-', ...labelArgs],
+    { input: body }
+  );
   if (!r.ok) return { ok: false, reason: r.stderr.trim() || `gh exited ${r.code}` };
   const m = r.stdout.match(/https:\/\/github\.com\/[^\s]+\/issues\/(\d+)/);
   if (!m) return { ok: false, reason: `gh succeeded but no URL in stdout: ${r.stdout.slice(0, 200)}` };
-  return { ok: true, issue_url: m[0], number: parseInt(m[1], 10) };
+  return { ok: true, issue_url: m[0], number: parseInt(m[1], 10), target_repo: `${target.owner}/${target.repo}` };
 }
 
 // --- create via REST ------------------------------------------------------
 async function viaRest() {
-  const repo = resolveRepo();
-  if (!repo) return { ok: false, reason: 'cannot resolve owner/repo (set GITHUB_REPOSITORY or git remote)' };
+  const target = resolveTargetRepo(task);
+  if (!target) return { ok: false, reason: 'cannot resolve target repo (set task.target_repo or GITHUB_REPOSITORY)' };
   if (!resolveToken()) return { ok: false, reason: 'no GitHub token available (set GITHUB_TOKEN or run `gh auth login`)' };
-  const res = await createIssue({ ...repo, title: task.title, body, labels });
+  const res = await createIssue({ owner: target.owner, repo: target.repo, title: task.title, body, labels });
   if (!res.ok) return { ok: false, reason: `REST create failed: HTTP ${res.status} ${typeof res.body === 'object' && res.body?.message ? res.body.message : ''}` };
-  return { ok: true, issue_url: res.body.html_url, number: res.body.number };
+  return { ok: true, issue_url: res.body.html_url, number: res.body.number, target_repo: `${target.owner}/${target.repo}` };
 }
 
 (async () => {
@@ -173,5 +191,6 @@ async function viaRest() {
     issue_url: result.issue_url,
     number: result.number,
     labels,
+    target_repo: result.target_repo,
   }, null, 2) + '\n');
 })();

@@ -19,7 +19,8 @@
     "pm:watch-results:once": "node scripts/watch-github-results-for-darren.mjs",
     "pm:watch-agents": "node scripts/watch-agent-issues.mjs --watch",
     "pm:watch-agents:once": "node scripts/watch-agent-issues.mjs",
-    "pm:watch-agents:dry-run": "node scripts/watch-agent-issues.mjs --dry-run"
+    "pm:watch-agents:dry-run": "node scripts/watch-agent-issues.mjs --dry-run",
+    "pm:submit": "node scripts/submit-plain-task.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",

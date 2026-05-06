@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Adversyn/adversyn-brain/blob/main/schemas/repo_config.schema.json",
+  "title": "RepoConfig",
+  "description": "Per-repo configuration for the Adversyn autonomous bridge. One file per managed repo under repos/<name>.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "full_name", "local_path", "default_branch", "allow_agent_execution"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "description": "Short slug, used in worktree paths and config filenames." },
+    "full_name": { "type": "string", "pattern": "^[^/]+/[^/]+$", "description": "GitHub owner/repo." },
+    "purpose": { "type": "string" },
+    "local_path": { "type": "string", "minLength": 1 },
+    "default_branch": { "type": "string", "default": "main" },
+    "visibility": { "type": "string", "enum": ["public", "private", "internal"] },
+    "app_url": { "type": ["string", "null"] },
+    "service_name": { "type": ["string", "null"] },
+    "allow_agent_execution": { "type": "boolean" },
+    "allow_npm_install_on_ec2": { "type": "boolean", "default": true },
+    "allow_npm_build_on_ec2": { "type": "boolean", "default": true },
+    "allowed_task_types": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "allowed_labels_for_pickup": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "forbidden_paths": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "forbidden_commands": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "deploy_target": { "type": ["string", "null"] },
+    "safety_notes": { "type": "array", "items": { "type": "string" }, "default": [] }
+  }
+}

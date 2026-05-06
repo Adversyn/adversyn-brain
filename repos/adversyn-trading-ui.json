@@ -1,0 +1,40 @@
+{
+  "name": "adversyn-trading-ui",
+  "full_name": "Adversyn/Adversyn-Trading",
+  "purpose": "Live trading UI (React/Vite). Served as static dist by trading-ui.service on port 8888.",
+  "local_path": "/home/ubuntu/adversyn-trading-ui-agent",
+  "default_branch": "main",
+  "visibility": "private",
+  "app_url": "http://18.190.151.128:8888/trading/",
+  "service_name": "trading-ui.service",
+  "allow_agent_execution": true,
+  "allow_npm_install_on_ec2": false,
+  "allow_npm_build_on_ec2": false,
+  "allowed_task_types": ["fix", "test", "refactor", "docs"],
+  "allowed_labels_for_pickup": ["agent:claude", "agent:codex"],
+  "forbidden_paths": [
+    "/trading",
+    "/etc",
+    "/home/ubuntu/adversyn-brain",
+    "/home/ubuntu/adversyn-brain-v1-stable"
+  ],
+  "forbidden_commands": [
+    "npm run build",
+    "npm run preview",
+    "vite build",
+    "npm install",
+    "npm ci",
+    "yarn install",
+    "pnpm install",
+    "systemctl",
+    "sudo",
+    "bash /home/ubuntu/deploy_trading_dist.sh"
+  ],
+  "deploy_target": "/trading/dist via /home/ubuntu/deploy_trading_dist.sh (Darren-driven; never automated)",
+  "safety_notes": [
+    "PRODUCTION EC2 MUST NEVER BUILD. Vite + esbuild + Rollup CPU-pin the box. Two prior incidents required AWS Console hard reboots.",
+    "Build happens locally on Darren's box (Windows) or in CI. EC2 only receives a tarball and runs deploy_trading_dist.sh.",
+    "Agent must edit source only. Never run npm install / npm run build. CI is the validation layer.",
+    "Never auto-deploy. Always require Darren approval (status:needs-human-approval) for any deploy-related task."
+  ]
+}
