@@ -28,15 +28,14 @@ fi
 echo "[codex.sh] starting codex in $PWD for issue #${ADVERSYN_ISSUE:-?}"
 echo "[codex.sh] codex version: $(codex --version 2>/dev/null | head -1)"
 
-# Headless / autonomous run.
-#   exec                                   : non-interactive single run
-#   --skip-git-check                       : we already know we're in a git worktree
-#   --sandbox workspace-write              : only this worktree is writable
-#   --ask-for-approval never               : autonomous approval (the watcher's
-#                                            worktree isolation is the safety boundary)
-exec codex exec \
-  --skip-git-check \
-  --sandbox workspace-write \
-  --ask-for-approval never \
-  --cd "$PWD" \
-  -- "$PROMPT"
+# Codex 0.128.0 non-interactive flags:
+#   exec                       — non-interactive single run
+#   --skip-git-repo-check      — accept that we are in a git worktree (worktrees
+#                                are technically git repos, just non-standard layout)
+#   --sandbox workspace-write  — file writes by model-issued shell commands are
+#                                confined to PWD; THIS is our hard FS boundary
+#   -c approval_policy=never   — never block on approval prompts; rely on the
+#                                sandbox + the prompt's forbidden-actions list
+#   --cd "$PWD"                 — anchor working dir to the worktree
+#   --                         — end-of-flags marker before the prompt arg
+exec codex exec   --skip-git-repo-check   --sandbox workspace-write   -c approval_policy=never   --cd "$PWD"   -- "$PROMPT"
